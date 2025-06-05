@@ -85,6 +85,7 @@ const PATTERNS = [
 ];
 
 let current = null;
+let currentTarget = null;
 let score = 0;
 let dropCounter = 0;
 let dropInterval = 1000;
@@ -96,6 +97,17 @@ function createPiece(type) {
     y: 0,
     shape: SHAPES[type],
     type
+  };
+}
+
+function spawnNewTarget() {
+  const pattern = PATTERNS[Math.floor(Math.random() * PATTERNS.length)];
+  const maxY = ROWS - pattern.shape.length;
+  const maxX = COLS - pattern.shape[0].length;
+  currentTarget = {
+    ...pattern,
+    x: Math.floor(Math.random() * maxX),
+    y: Math.floor(Math.random() * maxY)
   };
 }
 
@@ -144,7 +156,7 @@ function playerDrop() {
     current.y--;
     merge(field, current);
     clearLines();
-    checkPatterns();
+    checkTargetMatch();
     resetPiece();
   }
   dropCounter = 0;
@@ -155,7 +167,7 @@ function hardDrop() {
   current.y--;
   merge(field, current);
   clearLines();
-  checkPatterns();
+  checkTargetMatch();
   resetPiece();
   dropCounter = 0;
 }
@@ -172,36 +184,21 @@ function clearLines() {
   }
 }
 
-function checkPatterns() {
-  PATTERNS.forEach(p => {
-    const pH = p.shape.length;
-    const pW = p.shape[0].length;
-    for (let y = 0; y <= ROWS - pH; y++) {
-      for (let x = 0; x <= COLS - pW; x++) {
-        let match = true;
-        for (let py = 0; py < pH; py++) {
-          for (let px = 0; px < pW; px++) {
-            if (p.shape[py][px] && !field[y + py][x + px]) {
-              match = false;
-              break;
-            }
-          }
-          if (!match) break;
-        }
-        if (match) {
-          for (let py = 0; py < pH; py++) {
-            for (let px = 0; px < pW; px++) {
-              if (p.shape[py][px]) {
-                field[y + py][x + px] = 0;
-              }
-            }
-          }
-          score += p.score;
-          scoreEl.textContent = score;
-        }
-      }
+function checkTargetMatch() {
+  const { shape, x, y, score: s } = currentTarget;
+  for (let py = 0; py < shape.length; py++) {
+    for (let px = 0; px < shape[0].length; px++) {
+      if (shape[py][px] && !field[y + py][x + px]) return;
     }
-  });
+  }
+  for (let py = 0; py < shape.length; py++) {
+    for (let px = 0; px < shape[0].length; px++) {
+      if (shape[py][px]) field[y + py][x + px] = 0;
+    }
+  }
+  score += s;
+  scoreEl.textContent = score;
+  spawnNewTarget();
 }
 
 function resetPiece() {
@@ -212,6 +209,7 @@ function resetPiece() {
     for (let y = 0; y < ROWS; y++) field[y].fill(0);
     score = 0;
     scoreEl.textContent = score;
+    spawnNewTarget();
   }
 }
 
@@ -224,6 +222,15 @@ function drawBlock(x, y, type, alpha = 1.0) {
   ctx.globalAlpha = 1.0;
 }
 
+function drawTargetPattern() {
+  if (!currentTarget) return;
+  currentTarget.shape.forEach((row, y) => {
+    row.forEach((v, x) => {
+      if (v) drawBlock(currentTarget.x + x, currentTarget.y + y, 1, 0.2);
+    });
+  });
+}
+
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   field.forEach((row, y) => {
@@ -231,7 +238,7 @@ function draw() {
       if (v) drawBlock(x, y, v);
     });
   });
-
+  drawTargetPattern();
   const ghost = JSON.parse(JSON.stringify(current));
   while (!collide(field, ghost)) ghost.y++;
   ghost.y--;
@@ -240,7 +247,6 @@ function draw() {
       if (v) drawBlock(ghost.x + x, ghost.y + y, ghost.type, 0.3);
     });
   });
-
   current.shape.forEach((row, y) => {
     row.forEach((v, x) => {
       if (v) drawBlock(current.x + x, current.y + y, current.type);
@@ -262,6 +268,7 @@ function moveRight() { move(1); }
 function rotateLeft()  { rotatePiece(-1); }
 function rotateRight() { rotatePiece(1); }
 
+spawnNewTarget();
 resetPiece();
 update();
 </script>
