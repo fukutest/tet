@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>スマホ用テトリス（拡張）</title>
+  <style>
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      font-family: sans-serif;
+    }
+    canvas {
+      border: 2px solid #000;
+      background: #eee;
+      margin-top: 10px;
+    }
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(3, 60px);
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .controls button {
+      padding: 10px;
+      font-size: 18px;
+    }
+    .score {
+      margin-top: 10px;
+      font-size: 20px;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+
+<h2>スマホ用テトリス（ゴースト＋ハードドロップ＋スコア）</h2>
+<canvas id="game" width="200" height="400"></canvas>
+<div class="score">スコア: <span id="score">0</span></div>
+
+<div class="controls">
+  <button onclick="moveLeft()">←</button>
+  <button onclick="moveRight()">→</button>
+  <button onclick="hardDrop()">⏬</button>
+  <button onclick="rotateLeft()">⤺</button>
+  <button onclick="rotateRight()">⤻</button>
+</div>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+
+const COLS = 10;
+const ROWS = 20;
+const BLOCK_SIZE = 20;
+
+const field = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+const COLORS = [null, 'cyan', 'blue', 'orange', 'yellow', 'green', 'purple', 'red'];
+
+const SHAPES = [
+  [],
+  [[1, 1, 1, 1]],                          // I
+  [[2, 0, 0], [2, 2, 2]],                  // J
+  [[0, 0, 3], [3, 3, 3]],                  // L
+  [[4, 4], [4, 4]],                        // O
+  [[0, 5, 5], [5, 5, 0]],                  // S
+  [[0, 6, 0], [6, 6, 6]],                  // T
+  [[7, 7, 0], [0, 7, 7]]                   // Z
+];
+
+let current = null;
+let score = 0;
+let dropCounter = 0;
+let dropInterval = 1000;
+let lastTime = 0;
+
+function createPiece(type) {
+  return {
+    x: 3,
+    y: 0,
+    shape: SHAPES[type],
+    type
+  };
+}
+
+function collide(field, piece) {
+  const { shape, x: px, y: py } = piece;
+  for (let y = 0; y < shape.length; y++) {
+    for (let x = 0; x < shape[y].length; x++) {
+      if (
+        shape[y][x] &&
+        (field[py + y] === undefined || field[py + y][px + x] !== 0)
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function merge(field, piece) {
+  piece.shape.forEach((row, y) => {
+    row.forEach((value, x) => {
+      if (value) {
+        field[piece.y + y][piece.x + x] = piece.type;
+      }
+    });
+  });
+}
+
+function rotate(matrix, dir = 1) {
+  const result = matrix[0].map((_, i) =>
+    matrix.map(row => row[i])
+  );
+  return dir > 0 ? result.map(row => row.reverse()) : result.reverse();
+}
+
+function rotatePiece(dir) {
+  const old = current.shape;
+  current.shape = rotate(current.shape, dir);
+  if (collide(field, current)) current.shape = old;
+}
+
+function move(dir) {
+  current.x += dir;
+  if (collide(field, current)) current.x -= dir;
+}
+
+function playerDrop() {
+  current.y++;
+  if (collide(field, current)) {
+    current.y--;
+    merge(field, current);
+    clearLines();
+    resetPiece();
+  }
+  dropCounter = 0;
+}
+
+function hardDrop() {
+  while (!collide(field, current)) {
+    current.y++;
+  }
+  current.y--;
+  merge(field, current);
+  clearLines();
+  resetPiece();
+  dropCounter = 0;
+}
+
+function clearLines() {
+  let lines = 0;
+  outer: for (let y = ROWS - 1; y >= 0; y--) {
+    if (field[y].every(v => v > 0)) {
+      field.splice(y, 1);
+      field.unshift(Array(COLS).fill(0));
+      lines++;
+      y++;
+    }
+  }
+  if (lines > 0) {
+    score += lines * 100;
+    scoreEl.textContent = score;
+  }
+}
+
+function resetPiece() {
+  const type = (Math.random() * 7 | 0) + 1;
+  current = createPiece(type);
+  if (collide(field, current)) {
+    alert('ゲームオーバー');
+    for (let y = 0; y < ROWS; y++) field[y].fill(0);
+    score = 0;
+    scoreEl.textContent = score;
+  }
+}
+
+function drawBlock(x, y, type, alpha = 1.0) {
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = COLORS[type];
+  ctx.fillRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+  ctx.strokeStyle = '#aaa';
+  ctx.strokeRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+  ctx.globalAlpha = 1.0;
+}
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Draw field
+  field.forEach((row, y) => {
+    row.forEach((v, x) => {
+      if (v) drawBlock(x, y, v);
+    });
+  });
+
+  // Draw ghost
+  const ghost = JSON.parse(JSON.stringify(current));
+  while (!collide(field, ghost)) ghost.y++;
+  ghost.y--;
+  ghost.shape.forEach((row, y) => {
+    row.forEach((v, x) => {
+      if (v) drawBlock(ghost.x + x, ghost.y + y, ghost.type, 0.3);
+    });
+  });
+
+  // Draw current piece
+  current.shape.forEach((row, y) => {
+    row.forEach((v, x) => {
+      if (v) drawBlock(current.x + x, current.y + y, current.type);
+    });
+  });
+}
+
+function update(time = 0) {
+  const delta = time - lastTime;
+  lastTime = time;
+  dropCounter += delta;
+  if (dropCounter > dropInterval) playerDrop();
+  draw();
+  requestAnimationFrame(update);
+}
+
+// 操作用関数
+function moveLeft()  { move(-1); }
+function moveRight() { move(1); }
+function rotateLeft()  { rotatePiece(-1); }
+function rotateRight() { rotatePiece(1); }
+
+resetPiece();
+update();
+</script>
+
+</body>
+</html>
