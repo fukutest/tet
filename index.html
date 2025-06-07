@@ -1,276 +1,408 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <title>パターン認識付きテトリス</title>
+  <meta charset="UTF-8" />
+  <title>十字型フィールド テトリス</title>
   <style>
-    body {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      font-family: sans-serif;
-    }
     canvas {
-      border: 2px solid #000;
-      background: #eee;
-      margin-top: 10px;
+      border: 1px solid #333;
+      background-color: #f8f8f8;
+      display: block;
+      margin: 20px auto;
+      transition: transform 0.3s ease;
     }
+
     .controls {
-      display: grid;
-      grid-template-columns: repeat(3, 60px);
-      gap: 10px;
-      margin-top: 10px;
+      text-align: center;
+      margin-top: 20px;
     }
+
     .controls button {
-      padding: 10px;
-      font-size: 18px;
-    }
-    .score {
-      margin-top: 10px;
-      font-size: 20px;
-      font-weight: bold;
+      font-size: 36px;
+      padding: 20px 30px;
+      margin: 10px;
+      min-width: 120px;
     }
   </style>
 </head>
 <body>
 
-<h2>パターン認識付きテトリス</h2>
-<canvas id="game" width="280" height="480"></canvas>
-<div class="score">スコア: <span id="score">0</span></div>
+<canvas id="gameCanvas"></canvas>
+
 <div class="controls">
-  <button onclick="moveLeft()">←</button>
-  <button onclick="moveRight()">→</button>
-  <button onclick="hardDrop()">⏬</button>
-  <button onclick="rotateLeft()">⤺</button>
-  <button onclick="rotateRight()">⤻</button>
+  <!-- <div>
+    <button onclick="moveRelative(0,-1)">↑</button>
+  </div> -->
+  <div>
+    <button onclick="moveRelative(-1,0)">←</button>
+    <button onclick="moveRelative(1,0)">→</button>
+  </div>
+  <div>
+    <button onclick="moveRelative(0,1)">↓</button>
+  </div>
+  <div>
+    <button onclick="rotateTetromino(-1)">↺</button>
+    <button onclick="hardDrop()">HARD DROP</button>
+    <button onclick="rotateTetromino(1)">↻</button>
+  </div>
+  <div>
+    <button onclick="toggleFallDirection()">落下方向変更</button>
+  </div>
 </div>
 
 <script>
-const canvas = document.getElementById('game');
-const ctx = canvas.getContext('2d');
-const scoreEl = document.getElementById('score');
+  const canvas = document.getElementById("gameCanvas");
+  const ctx = canvas.getContext("2d");
 
-const COLS = 14;
-const ROWS = 24;
-const BLOCK_SIZE = 20;
-const field = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
-const COLORS = [null, 'cyan', 'blue', 'orange', 'yellow', 'green', 'purple', 'red'];
+  const cellSize = 24;
+  const regionSize = 10;
+  const centerSize = 10;
 
-const SHAPES = [
-  [],
-  [[1, 1, 1, 1]],
-  [[2, 0, 0], [2, 2, 2]],
-  [[0, 0, 3], [3, 3, 3]],
-  [[4, 4], [4, 4]],
-  [[0, 5, 5], [5, 5, 0]],
-  [[0, 6, 0], [6, 6, 6]],
-  [[7, 7, 0], [0, 7, 7]]
-];
+  const gridSize = regionSize * 2 + centerSize;
+  const centerStart = regionSize;
 
-const PATTERNS = [
-  {
-    shape: [
-      [1, 1, 1],
-      [0, 1, 0]
-    ],
-    score: 800
-  },
-  {
-    shape: [
-      [1, 1],
-      [1, 1]
-    ],
-    score: 500
+  canvas.width = gridSize * cellSize;
+  canvas.height = gridSize * cellSize;
+
+  let field = [];
+
+  function initField() {
+    field = [];
+    for (let y = 0; y < gridSize; y++) {
+      const row = [];
+      for (let x = 0; x < gridSize; x++) {
+        row.push(isActiveCell(x, y) ? 1 : 0);
+      }
+      field.push(row);
+    }
   }
-];
 
-let current = null;
-let currentTarget = null;
-let score = 0;
-let dropCounter = 0;
-let dropInterval = 1000;
-let lastTime = 0;
+  function isActiveCell(x, y) {
+    if (x >= centerStart && x < centerStart + centerSize &&
+        y >= centerStart && y < centerStart + centerSize) {
+      return true;
+    }
+    if (x >= centerStart && x < centerStart + centerSize && y < centerStart) {
+      return true;
+    }
+    if (x >= centerStart && x < centerStart + centerSize &&
+        y >= centerStart + centerSize) {
+      return true;
+    }
+    if (y >= centerStart && y < centerStart + centerSize && x < centerStart) {
+      return true;
+    }
+    if (y >= centerStart && y < centerStart + centerSize &&
+        x >= centerStart + centerSize) {
+      return true;
+    }
+    return false;
+  }
 
-function createPiece(type) {
-  return {
-    x: 5,
-    y: 0,
-    shape: SHAPES[type],
-    type
-  };
-}
+  function drawField() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-function spawnNewTarget() {
-  const pattern = PATTERNS[Math.floor(Math.random() * PATTERNS.length)];
-  const maxY = ROWS - pattern.shape.length;
-  const maxX = COLS - pattern.shape[0].length;
-  currentTarget = {
-    ...pattern,
-    x: Math.floor(Math.random() * maxX),
-    y: Math.floor(Math.random() * maxY)
-  };
-}
+    for (let y = 0; y < gridSize; y++) {
+      for (let x = 0; x < gridSize; x++) {
+        if (field[y][x] === 1) {
+          ctx.fillStyle = "#ffffff";
+          ctx.strokeStyle = "#444";
+        } else if (field[y][x] >= 2) {
+          ctx.fillStyle = tetrominoColors[field[y][x] - 2];
+          ctx.strokeStyle = "#000";
+        } else {
+          ctx.fillStyle = "#e0e0e0";
+          ctx.strokeStyle = "#ccc";
+        }
 
-function collide(field, piece) {
-  const { shape, x: px, y: py } = piece;
-  for (let y = 0; y < shape.length; y++) {
-    for (let x = 0; x < shape[y].length; x++) {
-      if (
-        shape[y][x] &&
-        (field[py + y] === undefined || field[py + y][px + x] !== 0)
-      ) {
-        return true;
+        ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+        ctx.strokeRect(x * cellSize, y * cellSize, cellSize, cellSize);
+      }
+    }
+
+    drawGhost();
+    drawTetromino();
+  }
+
+  const tetrominoes = [
+    [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]],
+    [[1,1],[1,1]],
+    [[0,1,0],[1,1,1],[0,0,0]],
+    [[0,1,1],[1,1,0],[0,0,0]],
+    [[1,1,0],[0,1,1],[0,0,0]],
+    [[1,0,0],[1,1,1],[0,0,0]],
+    [[0,0,1],[1,1,1],[0,0,0]]
+  ];
+
+  const tetrominoColors = [
+    "#00f", "#ff0", "#f0f", "#0f0", "#0ff", "#f80", "#f00"
+  ];
+
+  let currentTetromino = null;
+  let currentColorIndex = 0;
+  let currentX = 0;
+  let currentY = 0;
+  let fallDirection = "down";
+  let spawnSide = "top";
+
+  function spawnTetromino() {
+    const index = Math.floor(Math.random() * tetrominoes.length);
+    currentTetromino = tetrominoes[index];
+    currentColorIndex = index;
+
+    if (spawnSide === "top") {
+      currentX = centerStart + Math.floor((centerSize - currentTetromino[0].length) / 2);
+      currentY = 0;
+      fallDirection = "down";
+    } else {
+      currentX = 0;
+      currentY = centerStart + Math.floor((centerSize - currentTetromino.length) / 2);
+      fallDirection = "right";
+    }
+
+    // 次は交互
+    spawnSide = (spawnSide === "top") ? "left" : "top";
+
+    updateCanvasRotation();
+  }
+
+  function updateCanvasRotation() {
+    let angle = 0;
+    if (fallDirection === "down") angle = 0;
+    else if (fallDirection === "right") angle = 90;
+    else if (fallDirection === "up") angle = 180;
+    else if (fallDirection === "left") angle = 270;
+
+    canvas.style.transform = `rotate(${angle}deg)`;
+  }
+
+  function drawTetromino() {
+    ctx.fillStyle = tetrominoColors[currentColorIndex];
+    ctx.strokeStyle = "#000";
+
+    for (let y = 0; y < currentTetromino.length; y++) {
+      for (let x = 0; x < currentTetromino[y].length; x++) {
+        if (currentTetromino[y][x]) {
+          const drawX = (currentX + x) * cellSize;
+          const drawY = (currentY + y) * cellSize;
+
+          ctx.fillRect(drawX, drawY, cellSize, cellSize);
+          ctx.strokeRect(drawX, drawY, cellSize, cellSize);
+        }
       }
     }
   }
-  return false;
-}
 
-function merge(field, piece) {
-  piece.shape.forEach((row, y) => {
-    row.forEach((value, x) => {
-      if (value) field[piece.y + y][piece.x + x] = piece.type;
-    });
-  });
-}
+  function drawGhost() {
+    let ghostX = currentX;
+    let ghostY = currentY;
 
-function rotate(matrix, dir = 1) {
-  const result = matrix[0].map((_, i) => matrix.map(row => row[i]));
-  return dir > 0 ? result.map(row => row.reverse()) : result.reverse();
-}
+    if (fallDirection === "down") {
+      while (canMove(0, ghostY - currentY + 1)) ghostY++;
+    } else {
+      while (canMove(ghostX - currentX + 1, 0)) ghostX++;
+    }
 
-function rotatePiece(dir) {
-  const old = current.shape;
-  current.shape = rotate(current.shape, dir);
-  if (collide(field, current)) current.shape = old;
-}
+    ctx.strokeStyle = "#888";
+    ctx.fillStyle = "rgba(128,128,128,0.3)";
 
-function move(dir) {
-  current.x += dir;
-  if (collide(field, current)) current.x -= dir;
-}
+    for (let y = 0; y < currentTetromino.length; y++) {
+      for (let x = 0; x < currentTetromino[y].length; x++) {
+        if (currentTetromino[y][x]) {
+          const drawX = (ghostX + x) * cellSize;
+          const drawY = (ghostY + y) * cellSize;
 
-function playerDrop() {
-  current.y++;
-  if (collide(field, current)) {
-    current.y--;
-    merge(field, current);
+          ctx.fillRect(drawX, drawY, cellSize, cellSize);
+          ctx.strokeRect(drawX, drawY, cellSize, cellSize);
+        }
+      }
+    }
+  }
+
+  function canMove(dx, dy) {
+    for (let y = 0; y < currentTetromino.length; y++) {
+      for (let x = 0; x < currentTetromino[y].length; x++) {
+        if (currentTetromino[y][x]) {
+          const newX = currentX + x + dx;
+          const newY = currentY + y + dy;
+
+          if (newX < 0 || newX >= gridSize || newY >= gridSize) return false;
+          if (newY >= 0 && field[newY][newX] >= 2) return false;
+          if (newY >= 0 && field[newY][newX] === 0) return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  function moveTetromino(dx, dy) {
+    if (canMove(dx, dy)) {
+      currentX += dx;
+      currentY += dy;
+      drawField();
+    }
+  }
+
+  function moveRelative(dx, dy) {
+    let realDx = 0, realDy = 0;
+    if (fallDirection === "down") {
+      realDx = dx; realDy = dy;
+    } else if (fallDirection === "right") {
+      realDx = dy; realDy = -dx;
+    } else if (fallDirection === "up") {
+      realDx = -dx; realDy = -dy;
+    } else if (fallDirection === "left") {
+      realDx = -dy; realDy = dx;
+    }
+    moveTetromino(realDx, realDy);
+  }
+
+  function rotateTetromino(direction) {
+    const size = currentTetromino.length;
+    let newTetromino = [];
+
+    for (let y = 0; y < size; y++) {
+      newTetromino[y] = [];
+      for (let x = 0; x < size; x++) {
+        if (direction === 1) {
+          newTetromino[y][x] = currentTetromino[size - x - 1][y];
+        } else {
+          newTetromino[y][x] = currentTetromino[x][size - y - 1];
+        }
+      }
+    }
+
+    const oldTetromino = currentTetromino;
+    currentTetromino = newTetromino;
+    if (!canMove(0,0)) currentTetromino = oldTetromino;
+
+    drawField();
+  }
+
+  function fixTetromino() {
+    for (let y = 0; y < currentTetromino.length; y++) {
+      for (let x = 0; x < currentTetromino[y].length; x++) {
+        if (currentTetromino[y][x]) {
+          const fx = currentX + x;
+          const fy = currentY + y;
+          if (fy >= 0 && fy < gridSize && fx >= 0 && fx < gridSize) {
+            field[fy][fx] = currentColorIndex + 2;
+          }
+        }
+      }
+    }
+
     clearLines();
-    checkTargetMatch();
-    resetPiece();
   }
-  dropCounter = 0;
-}
 
-function hardDrop() {
-  while (!collide(field, current)) current.y++;
-  current.y--;
-  merge(field, current);
-  clearLines();
-  checkTargetMatch();
-  resetPiece();
-  dropCounter = 0;
-}
+  function clearLines() {
+  // === D領域（下）の行消去 ===
+  const dStartY = centerStart + centerSize;
+  const dEndY = gridSize;
+  const dStartX = centerStart;
+  const dEndX = centerStart + centerSize;
 
-function clearLines() {
-  for (let y = ROWS - 1; y >= 0; y--) {
-    if (field[y].every(v => v > 0)) {
-      field.splice(y, 1);
-      field.unshift(Array(COLS).fill(0));
-      score += 100;
-      scoreEl.textContent = score;
-      y++;
+  for (let y = dStartY; y < dEndY; y++) {
+    let isFull = true;
+    for (let x = dStartX; x < dEndX; x++) {
+      if (field[y][x] < 2) {
+        isFull = false;
+        break;
+      }
+    }
+    if (isFull) {
+      for (let yy = y; yy > dStartY; yy--) {
+        for (let x = dStartX; x < dEndX; x++) {
+          field[yy][x] = field[yy-1][x];
+        }
+      }
+      for (let x = dStartX; x < dEndX; x++) {
+        field[dStartY][x] = 1;
+      }
+    }
+  }
+
+  // === R領域（右）の列消去 ===
+  const rStartX = centerStart + centerSize;
+  const rEndX = gridSize;
+  const rStartY = centerStart;
+  const rEndY = centerStart + centerSize;
+
+  for (let x = rStartX; x < rEndX; x++) {
+    let isFull = true;
+    for (let y = rStartY; y < rEndY; y++) {
+      if (field[y][x] < 2) {
+        isFull = false;
+        break;
+      }
+    }
+    if (isFull) {
+      for (let xx = x; xx > rStartX; xx--) {
+        for (let y = rStartY; y < rEndY; y++) {
+          field[y][xx] = field[y][xx-1];
+        }
+      }
+      for (let y = rStartY; y < rEndY; y++) {
+        field[y][rStartX] = 1;
+      }
     }
   }
 }
 
-function checkTargetMatch() {
-  const { shape, x, y, score: s } = currentTarget;
-  for (let py = 0; py < shape.length; py++) {
-    for (let px = 0; px < shape[0].length; px++) {
-      if (shape[py][px] && !field[y + py][x + px]) return;
+
+  function hardDrop() {
+    if (fallDirection === "down") {
+      while (canMove(0,1)) currentY += 1;
+    } else {
+      while (canMove(1,0)) currentX += 1;
     }
+    fixTetromino();
+    spawnTetromino();
+    drawField();
   }
-  for (let py = 0; py < shape.length; py++) {
-    for (let px = 0; px < shape[0].length; px++) {
-      if (shape[py][px]) field[y + py][x + px] = 0;
+
+  function toggleFallDirection() {
+    if (fallDirection === "down") fallDirection = "right";
+    else fallDirection = "down";
+
+    updateCanvasRotation();
+  }
+
+  function gameLoop() {
+    if (fallDirection === "down") {
+      if (canMove(0,1)) currentY += 1;
+      else {
+        fixTetromino();
+        spawnTetromino();
+      }
+    } else if (fallDirection === "right") {
+      if (canMove(1,0)) currentX += 1;
+      else {
+        fixTetromino();
+        spawnTetromino();
+      }
+    } else if (fallDirection === "up") {
+      if (canMove(0,-1)) currentY -= 1;
+      else {
+        fixTetromino();
+        spawnTetromino();
+      }
+    } else if (fallDirection === "left") {
+      if (canMove(-1,0)) currentX -= 1;
+      else {
+        fixTetromino();
+        spawnTetromino();
+      }
     }
+
+    drawField();
   }
-  score += s;
-  scoreEl.textContent = score;
-  spawnNewTarget();
-}
 
-function resetPiece() {
-  const type = (Math.random() * 7 | 0) + 1;
-  current = createPiece(type);
-  if (collide(field, current)) {
-    alert('ゲームオーバー');
-    for (let y = 0; y < ROWS; y++) field[y].fill(0);
-    score = 0;
-    scoreEl.textContent = score;
-    spawnNewTarget();
-  }
-}
+  initField();
+  spawnTetromino();
+  drawField();
 
-function drawBlock(x, y, type, alpha = 1.0) {
-  ctx.globalAlpha = alpha;
-  ctx.fillStyle = COLORS[type];
-  ctx.fillRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
-  ctx.strokeStyle = '#aaa';
-  ctx.strokeRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
-  ctx.globalAlpha = 1.0;
-}
-
-function drawTargetPattern() {
-  if (!currentTarget) return;
-  currentTarget.shape.forEach((row, y) => {
-    row.forEach((v, x) => {
-      if (v) drawBlock(currentTarget.x + x, currentTarget.y + y, 1, 0.2);
-    });
-  });
-}
-
-function draw() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  field.forEach((row, y) => {
-    row.forEach((v, x) => {
-      if (v) drawBlock(x, y, v);
-    });
-  });
-  drawTargetPattern();
-  const ghost = JSON.parse(JSON.stringify(current));
-  while (!collide(field, ghost)) ghost.y++;
-  ghost.y--;
-  ghost.shape.forEach((row, y) => {
-    row.forEach((v, x) => {
-      if (v) drawBlock(ghost.x + x, ghost.y + y, ghost.type, 0.3);
-    });
-  });
-  current.shape.forEach((row, y) => {
-    row.forEach((v, x) => {
-      if (v) drawBlock(current.x + x, current.y + y, current.type);
-    });
-  });
-}
-
-function update(time = 0) {
-  const delta = time - lastTime;
-  lastTime = time;
-  dropCounter += delta;
-  if (dropCounter > dropInterval) playerDrop();
-  draw();
-  requestAnimationFrame(update);
-}
-
-function moveLeft()  { move(-1); }
-function moveRight() { move(1); }
-function rotateLeft()  { rotatePiece(-1); }
-function rotateRight() { rotatePiece(1); }
-
-spawnNewTarget();
-resetPiece();
-update();
+  setInterval(gameLoop, 500);
 </script>
 
 </body>
