@@ -23,6 +23,11 @@
       padding: 20px 30px;
       margin: 10px;
       min-width: 120px;
+
+      touch-action: manipulation; /* ダブルタップズーム・ピンチズームを抑制 */
+      -webkit-user-select: none;  /* 選択防止 */
+      user-select: none;
+      -webkit-tap-highlight-color: transparent; /* タップハイライト消す */
     }
   </style>
 </head>
